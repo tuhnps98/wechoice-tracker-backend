@@ -1,54 +1,48 @@
-# Build stage
-FROM node:20-alpine AS builder
+# --- GIAI ĐOẠN 1: BUILD ---
+# Đổi từ alpine sang slim (Debian)
+FROM node:20-slim AS builder
 
 WORKDIR /app
 
-# Copy package files
+# Copy file cài đặt
 COPY package*.json ./
 
-# Install dependencies
+# Cài đặt dependencies
 RUN npm install
 
-# Copy source code
+# Copy toàn bộ code
 COPY . .
 
-# Build application
+# Build code (NestJS)
 RUN rm -f tsconfig.build.tsbuildinfo && \
     rm -rf dist && \
     npx tsc -p tsconfig.build.json
 
-# ------------------------------
-
-# Production stage
-FROM node:20-alpine
+# --- GIAI ĐOẠN 2: CHẠY (PRODUCTION) ---
+FROM node:20-slim
 
 WORKDIR /app
 
-# Install dumb-init for proper signal handling
-RUN apk add --no-cache dumb-init
+# Cài đặt dumb-init (Dùng apt-get thay vì apk)
+RUN apt-get update && apt-get install -y dumb-init
 
-# --- FIX QUAN TRỌNG NHẤT: ÉP DÙNG IPV4 ---
-# Thêm dòng này để chặn đứng lỗi ENETUNREACH IPv6
+# GIỮ NGUYÊN LỆNH NÀY: Ép buộc dùng IPv4
 ENV NODE_OPTIONS="--dns-result-order=ipv4first"
-# -----------------------------------------
 
-# Copy built application
+# Copy code đã build từ giai đoạn 1
 COPY --from=builder /app/dist ./dist
 COPY package*.json ./
 
-# Install production dependencies only
+# Cài dependencies (chỉ production)
 RUN npm install --omit=dev
 
-# Create non-root user
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001
-
+# Tạo user để chạy cho an toàn
+RUN groupadd -r nodejs && useradd -r -g nodejs nodejs
 USER nodejs
 
-# Expose port
+# Mở cổng 3000
 EXPOSE 3000
 
-# Use dumb-init to handle signals properly
+# Chạy lệnh khởi động
 ENTRYPOINT ["dumb-init", "--"]
-
 CMD ["node", "dist/main.js"]
