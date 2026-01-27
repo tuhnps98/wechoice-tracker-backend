@@ -12,16 +12,11 @@ RUN npm install
 # Copy source code
 COPY . .
 
+# Build application
 RUN rm -f tsconfig.build.tsbuildinfo && \
     rm -rf dist && \
-    npx tsc -p tsconfig.build.json && \
-    ls -la dist
+    npx tsc -p tsconfig.build.json
 
-# Build application
-RUN npx tsc -p tsconfig.build.json
-
-RUN echo "=== KIỂM TRA THƯ MỤC GỐC ===" && ls -la
-RUN echo "=== KIỂM TRA THƯ MỤC DIST (NẾU CÓ) ===" && ls -la dist || echo "Khong tim thay thu muc dist"
 # ------------------------------
 
 # Production stage
@@ -31,6 +26,11 @@ WORKDIR /app
 
 # Install dumb-init for proper signal handling
 RUN apk add --no-cache dumb-init
+
+# --- FIX QUAN TRỌNG NHẤT: ÉP DÙNG IPV4 ---
+# Thêm dòng này để chặn đứng lỗi ENETUNREACH IPv6
+ENV NODE_OPTIONS="--dns-result-order=ipv4first"
+# -----------------------------------------
 
 # Copy built application
 COPY --from=builder /app/dist ./dist
