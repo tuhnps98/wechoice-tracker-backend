@@ -67,11 +67,12 @@ export class SnapshotService {
         'User-Agent': 'Mozilla/5.0 (compatible; WeChoiceTracker/1.0)',
       };
 
+      // Gọi API cho từng category
       for (const category of categories) {
-        const apiUrlWithCategory = this.apiUrl.includes('lstId') 
-            ? this.apiUrl 
-            : `${this.apiUrl}&lstId=${category.id}`;
-
+        // [SỬA ĐỔI QUAN TRỌNG]: Đổi lstId thành awardId
+        const separator = this.apiUrl.includes('?') ? '&' : '?';
+        const apiUrlWithCategory = `${this.apiUrl}${separator}awardId=${category.id}`;
+        
         try {
           const response = await firstValueFrom(
             this.http.get(apiUrlWithCategory, {
