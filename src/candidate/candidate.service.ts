@@ -1,63 +1,32 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Candidate } from './candidate.entity';
 import { Repository } from 'typeorm';
-import { CreateCandidateDto } from './dto/create-candidate.dto';
-import { UpdateCandidateDto } from './dto/update-candidate.dto';
-import { Category } from '../category/category.entity';
+import { Candidate } from './candidate.entity';
 
 @Injectable()
 export class CandidateService {
   constructor(
     @InjectRepository(Candidate)
-    private readonly candidateRepository: Repository<Candidate>,
-
-    @InjectRepository(Category)
-    private readonly categoryRepository: Repository<Category>,
+    private candidateRepository: Repository<Candidate>,
   ) {}
 
   async findAll(): Promise<Candidate[]> {
-    return this.candidateRepository.find();
+    return this.candidateRepository.find({
+      relations: ['category', 'snapshots'], // Load luôn quan hệ để dùng nếu cần
+    });
   }
 
-  async findOne(id: number): Promise<Candidate> {
-    const candidate = await this.candidateRepository.findOneBy({ id });
+  // 👇 Đổi id: number thành id: string
+  async findOne(id: string): Promise<Candidate> {
+    const candidate = await this.candidateRepository.findOne({
+      where: { id: id }, // ID bây giờ là string
+      relations: ['category'],
+    });
     if (!candidate) {
-      throw new NotFoundException(`Candidate not found`);
+      throw new NotFoundException(`Candidate with ID ${id} not found`);
     }
     return candidate;
   }
-
-  async create(dto: CreateCandidateDto) {
-    const category = await this.categoryRepository.findOne({
-      where: { id: dto.categoryId },
-    });
-    if (!category) {
-      throw new NotFoundException('Category not found');
-    }
-
-    const candidate = this.candidateRepository.create({
-      id: dto.id,
-      name: dto.name,
-      category: category,
-    });
-
-    return this.candidateRepository.save(candidate);
-  }
-
-  async update(id: number, dto: UpdateCandidateDto): Promise<Candidate> {
-    const candidate = await this.candidateRepository.findOneBy({ id });
-    if (!candidate) {
-      throw new NotFoundException(`Candidate not found`);
-    } 
-    candidate.name = dto.name ?? candidate.name;
-    return this.candidateRepository.save(candidate);
-  }
-
-  async remove(id: number): Promise<void> {
-    const result = await this.candidateRepository.delete(id);
-    if (result.affected === 0) {
-      throw new NotFoundException(`Candidate not found`);
-    }
-  }
+  
+  // Các hàm create/update nếu có cũng cần đảm bảo nhận string
 }
