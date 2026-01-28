@@ -6,14 +6,12 @@ export default registerAs(
   'typeorm',
   (): TypeOrmModuleOptions => ({
     type: 'postgres',
-    // Code sẽ lấy link từ Render (đã xóa đuôi sslmode)
-    url: process.env.DATABASE_URL || process.env.DB_URL,
-    
-    // Cấu hình SSL bắt buộc để kết nối Supabase
-    ssl: {
-      rejectUnauthorized: false, // <--- DÒNG QUAN TRỌNG NHẤT: Bỏ qua kiểm tra chứng chỉ
-    },
-
+    url: process.env.DB_URL,
+    host: process.env.DB_HOST,
+    port: parseInt(process.env.DB_PORT || '5432', 10),
+    username: process.env.DB_USER,
+    password: process.env.DB_PASS,
+    database: process.env.DB_NAME,
     autoLoadEntities: true,
     synchronize: true,
     migrations: [join(__dirname, '../..', 'migrations', '*.{js,ts}')],
