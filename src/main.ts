@@ -5,18 +5,11 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // CORS configuration
-  const allowedOrigins = process.env.CORS_ORIGIN
-    ? process.env.CORS_ORIGIN.split(',')
-    : ['http://localhost:5173'];
+  // 👇 THAY ĐỔI QUAN TRỌNG NHẤT Ở ĐÂY:
+  // Thay vì cấu hình phức tạp, mình mở toang cửa cho Frontend vào
+  app.enableCors(); 
 
-  app.enableCors({
-    origin: allowedOrigins,
-    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
-    credentials: true,
-  });
-
-  // Health check endpoint for Cloud Run
+  // --- Giữ nguyên đoạn Health Check xịn xò này ---
   const httpAdapter = app.getHttpAdapter();
   httpAdapter.get('/health', (req, res) => {
     res.status(200).json({
@@ -25,6 +18,7 @@ async function bootstrap() {
       uptime: process.uptime(),
     });
   });
+  // -----------------------------------------------
 
   const port = process.env.PORT || 3000;
   await app.listen(port, '0.0.0.0');
