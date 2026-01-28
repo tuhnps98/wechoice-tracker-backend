@@ -53,13 +53,10 @@ export class SnapshotService {
   }
 
   async syncVotes() {
-    this.logger.log('Fetching votes from external API...');
-
-    // Lấy danh sách tất cả các category
+    this.logger.log('Starting Snapshot Sync process...');
     const categories = await this.categoryRepository.find();
 
     if (!categories || categories.length === 0) {
-      this.logger.warn('No categories found in database');
       return;
     }
 
@@ -67,15 +64,13 @@ export class SnapshotService {
       const headers = {
         Referer: this.configService.get<string>('API_REFERER') ?? '',
         Cookie: this.configService.get<string>('API_COOKIE') ?? '',
+        'User-Agent': 'Mozilla/5.0 (compatible; WeChoiceTracker/1.0)',
       };
 
-      // Gọi API cho từng category
       for (const category of categories) {
-        this.logger.log(
-          `Fetching votes for category: ${category.name} (${category.id})`,
-        );
-
-        const apiUrlWithCategory = `${this.apiUrl}&lstId=${category.id}`;
+        const apiUrlWithCategory = this.apiUrl.includes('lstId') 
+            ? this.apiUrl 
+            : `${this.apiUrl}&lstId=${category.id}`;
 
         try {
           const response = await firstValueFrom(
@@ -85,19 +80,14 @@ export class SnapshotService {
             }),
           );
           const result = response.data;
+          const rawList = result?.Data || result?.data || [];
 
-          if (!result.Success || !result.Data) {
-            this.logger.warn(
-              `API returned unsuccessful response or no data for category ${category.id}`,
-            );
-            continue;
-          }
+          for (const item of rawList) {
+            // Mapping thông minh tương tự RealtimeService
+            const candidateId = item.m || item.id;
+            const totalVote = item.list?.[0]?.v ?? item.vote ?? item.totalVotes ?? 0;
 
-          for (const item of result.Data) {
-            const { m: candidateId, list } = item;
-            if (!candidateId || !list || list.length === 0) continue;
-
-            const totalVote = list[0].v; // Get vote count from the first item in list
+            if (!candidateId) continue;
 
             const candidate = await this.candidateRepository.findOne({
               where: { id: candidateId },
@@ -111,41 +101,29 @@ export class SnapshotService {
                 totalVote: totalVote,
               });
               await this.snapshotRepository.save(snapshot);
-              this.logger.log(
-                `Created snapshot for candidate ${candidate.id} with ${totalVote} votes successfully`,
-              );
             }
           }
-
-          this.logger.log(
-            `Completed fetching votes for category ${category.id}`,
-          );
         } catch (categoryError) {
-          this.logger.error(
-            `Failed to fetch votes for category ${category.id}:`,
-            categoryError,
-          );
+          this.logger.error(`Failed snapshot for category ${category.id}`);
         }
       }
 
-      // Cache sẽ tự động invalidate sau 10 phút (TTL)
-      this.logger.log('Cache will be automatically invalidated by TTL');
+      // Xóa cache để Frontend nhận dữ liệu mới ngay
+      await this.cacheManager.clear();
+      this.logger.log('Snapshot sync completed & Cache cleared.');
     } catch (error) {
-      this.logger.error('Failed to fetching votes:', error);
+      this.logger.error('Failed to sync snapshots:', error);
     }
   }
 
-  // Lấy dữ liệu vote mới nhất mỗi 10 phút
+  // Cron job chạy mỗi 10 phút để lưu lịch sử
   @Cron(CronExpression.EVERY_10_MINUTES)
   async handleCron() {
     const enableCron = this.configService.get<string>('ENABLE_CRON');
     if (enableCron !== 'true') {
-      this.logger.warn('Cron job is disabled. Skipping syncVotes.');
+      this.logger.warn('Cron job is disabled.');
       return;
     }
     await this.syncVotes();
-    // Xoá cache sau khi đồng bộ dữ liệu mới
-    await this.cacheManager.clear();
-    this.logger.log('Cache cleared after syncing votes.');
   }
 }
