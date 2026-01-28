@@ -1,36 +1,21 @@
-import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  ManyToOne,
-  JoinColumn,
-  CreateDateColumn,
-} from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, ManyToOne, JoinColumn, CreateDateColumn } from 'typeorm';
 import { Candidate } from '../candidate/candidate.entity';
-import { Category } from '../category/category.entity';
 
 @Entity('vote_snapshots')
 export class Snapshot {
-  @PrimaryGeneratedColumn({ name: 'id', type: 'bigint' })
-  id: number;
+  @PrimaryGeneratedColumn()
+  id: number; // ID của snapshot thì để số thường được
 
-  @Column({ name: 'candidate_id', type: 'int' })
-  candidateId: number;
+  @Column({ name: 'candidate_id', type: 'bigint' })
+  candidateId: string; // 👇 ID tham chiếu phải là string để khớp với Candidate
 
-  @Column({ name: 'category_id', type: 'varchar' })
-  categoryId: string;
+  @Column({ name: 'total_votes', type: 'int' })
+  totalVotes: number;
 
-  @ManyToOne(() => Candidate, { onDelete: 'CASCADE' })
+  @CreateDateColumn({ name: 'recorded_at' })
+  recordedAt: Date;
+
+  @ManyToOne(() => Candidate, (candidate) => candidate.snapshots, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'candidate_id' })
   candidate: Candidate;
-
-  @ManyToOne(() => Category, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'category_id' })
-  category: Category;
-
-  @Column({ name: 'total_votes', type: 'bigint', default: 0 })
-  totalVote: number;
-
-  @CreateDateColumn({ name: 'recorded_at', type: 'timestamp' })
-  recordedAt: Date;
 }
