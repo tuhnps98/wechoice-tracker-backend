@@ -1,32 +1,20 @@
+import { Entity, Column, ManyToOne, JoinColumn, PrimaryColumn } from 'typeorm';
 import { Category } from '../category/category.entity';
-import { Snapshot } from '../snapshot/snapshot.entity';
-import {
-  Column,
-  Entity,
-  PrimaryColumn,
-  JoinColumn,
-  ManyToOne,
-  OneToMany,
-} from 'typeorm';
 
 @Entity('candidates')
 export class Candidate {
-  @PrimaryColumn({ name: 'id', type: 'int' })
+  // 👇 Đổi từ @PrimaryGeneratedColumn sang @PrimaryColumn
+  // Để cho phép lưu ID số lớn từ WeChoice (không tự tăng 1,2,3 nữa)
+  @PrimaryColumn({ type: 'bigint' }) 
   id: number;
 
-  @Column({ name: 'category_id', type: 'varchar' })
-  categoryId: string;
-
-  @Column({ name: 'name' })
+  @Column()
   name: string;
 
-  // Mối quan hệ với Category
-  @ManyToOne(() => Category, (category) => category.candidates, {
-    onDelete: 'CASCADE',
-  })
+  @Column({ name: 'category_id', nullable: true })
+  categoryId: string;
+
+  @ManyToOne(() => Category, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'category_id' })
   category: Category;
-
-  @OneToMany(() => Snapshot, (snapshot) => snapshot.candidate)
-  snapshots: Snapshot[];
 }
