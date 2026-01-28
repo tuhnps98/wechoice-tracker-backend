@@ -11,7 +11,7 @@ export class CandidateController {
   }
 
   @Get(':id')
-  async findOne(@Param('id') id: string) {
+  async findOne(@Param('id') id: string) { // 👈 Nhận string
     const candidate = await this.candidateService.findOne(id);
     if (!candidate) throw new NotFoundException();
     return candidate;
