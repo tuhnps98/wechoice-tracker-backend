@@ -40,7 +40,6 @@ export class RealtimeService {
 
   @Cron(CronExpression.EVERY_10_SECONDS)
   async getVotes() {
-    // 1. Lấy danh sách hạng mục
     const categories = await this.categoryRepository.find();
     if (!categories || categories.length === 0) return { updatedAt: new Date().toISOString(), data: [] };
 
@@ -53,10 +52,10 @@ export class RealtimeService {
 
       let allTransformedData: any[] = [];
 
-      // 2. Quét từng hạng mục
       for (const category of categories) {
         const separator = this.apiUrl.includes('?') ? '&' : '?';
-        const apiUrlWithCategory = `${this.apiUrl}${separator}awardId=${category.id}`;
+        // 👇 Ép kiểu String cho category.id cho chắc ăn
+        const apiUrlWithCategory = `${this.apiUrl}${separator}awardId=${String(category.id)}`;
 
         try {
           const response = await firstValueFrom(
@@ -67,34 +66,40 @@ export class RealtimeService {
           if (!result || (!result.Success && !result.data)) continue;
           const rawList = result.Data || result.data || [];
 
-          // 3. Xử lý và Tự động tạo ứng viên
           const transformedData = await Promise.all(
             rawList.map(async (item: any) => {
-              const candidateId = item.m || item.id;
+              // 👇 QUAN TRỌNG: Ép kiểu String ngay lập tức
+              const candidateId = String(item.m || item.id);
               const totalVotes = item.list?.[0]?.v ?? item.vote ?? item.totalVotes ?? 0;
               const apiName = item.n || item.name || item.candidateName || "Không rõ";
 
               if (!candidateId) return null;
 
-              // Tìm trong DB xem có chưa
+              // Tìm trong DB
               let candidate = await this.candidateRepository.findOne({
-                where: { id: candidateId },
+                where: { id: candidateId }, // ID ở đây giờ chắc chắn là String
                 relations: ['category'],
               });
 
-              // [QUAN TRỌNG] Nếu chưa có -> Tạo mới ngay lập tức
+              // Tạo mới nếu chưa có
               if (!candidate) {
                 this.logger.log(`New Candidate Found: ${apiName} (${candidateId}) -> Creating...`);
                 const newCandidate = this.candidateRepository.create({
                   id: candidateId,
                   name: apiName,
                   category: category, 
-                  categoryId: category.id // Lưu ý: Đảm bảo mapping đúng
+                  categoryId: String(category.id) // 👇 Ép kiểu String ở đây nữa
                 });
-                await this.candidateRepository.save(newCandidate);
-                candidate = newCandidate;
+                
+                // 👇 Thêm try/catch riêng cho lệnh save để bắt lỗi nếu có
+                try {
+                    await this.candidateRepository.save(newCandidate);
+                    candidate = newCandidate;
+                } catch (saveError) {
+                    this.logger.error(`Failed to save candidate ${apiName}: ${saveError.message}`);
+                    return null; // Bỏ qua thằng lỗi này
+                }
               } else {
-                // Nếu có rồi nhưng tên khác -> Cập nhật tên
                 if (apiName && apiName !== candidate.name) {
                    await this.candidateRepository.update(candidateId, { name: apiName });
                    candidate.name = apiName;
@@ -104,7 +109,7 @@ export class RealtimeService {
               return {
                 id: candidate.id,
                 name: candidate.name,
-                categoryId: category.id,
+                categoryId: String(category.id),
                 categoryName: category.name,
                 totalVotes: totalVotes,
               };
@@ -113,7 +118,8 @@ export class RealtimeService {
 
           allTransformedData = [...allTransformedData, ...transformedData.filter((i) => i !== null)];
         } catch (e) {
-           // Bỏ qua lỗi nhỏ để chạy tiếp các hạng mục khác
+           // 👇 LOG LỖI RA ĐỂ BIẾT TẠI SAO (Lúc trước bạn để trống chỗ này nên không biết lỗi gì)
+           this.logger.error(`Error processing category ${category.id}: ${e.message}`);
         }
       }
 
