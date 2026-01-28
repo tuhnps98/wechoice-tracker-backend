@@ -4,17 +4,16 @@ import { Snapshot } from '../snapshot/snapshot.entity';
 
 @Entity('candidates')
 export class Candidate {
-  // 👇 [QUAN TRỌNG] Đổi thành string
-  @PrimaryColumn({ type: 'bigint' }) 
-  id: string;
+  @PrimaryColumn({ type: 'bigint' })
+  id: string; // 👈 Quan trọng: String
 
   @Column()
   name: string;
 
   @Column({ name: 'category_id', type: 'bigint', nullable: true })
-  categoryId: string; // 👇 Cái này cũng phải là string
+  categoryId: string; // 👈 Quan trọng: String
 
-  @ManyToOne(() => Category, { onDelete: 'CASCADE' })
+  @ManyToOne(() => Category, (category) => category.candidates, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'category_id' })
   category: Category;
 
