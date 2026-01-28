@@ -25,7 +25,7 @@ export class SnapshotService {
     private httpService: HttpService,
     private configService: ConfigService,
   ) {
-    this.apiUrl = this.configService.get<string>('API_URL');
+    this.apiUrl = this.configService.get<string>('API_URL') || '';
   }
 
   // Chạy mỗi 30 phút một lần (hoặc tùy chỉnh)
