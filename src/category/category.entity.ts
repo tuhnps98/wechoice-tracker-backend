@@ -3,14 +3,13 @@ import { Candidate } from '../candidate/candidate.entity';
 
 @Entity('categories')
 export class Category {
-  // 👇 Khai báo đúng kiểu dữ liệu khớp với bảng hiện có trong Supabase
+  // 👇 [QUAN TRỌNG] Đổi thành string để chứa được ID siêu to của WeChoice
   @PrimaryColumn({ type: 'bigint' }) 
-  id: number;
+  id: string; 
 
   @Column()
   name: string;
 
-  // Mối quan hệ: Một hạng mục có nhiều ứng viên
   @OneToMany(() => Candidate, (candidate) => candidate.category)
   candidates: Candidate[];
 }
