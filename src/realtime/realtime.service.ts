@@ -40,12 +40,13 @@ export class RealtimeService {
 
   @Cron(CronExpression.EVERY_10_SECONDS)
   async getVotes() {
-    this.logger.log('Fetching new votes from external API...');
-    // Lấy danh sách tất cả các category
+    // this.logger.log('Fetching new votes from external API...');
+    
+    // 1. Lấy danh sách Categories từ DB Supabase
     const categories = await this.categoryRepository.find();
 
     if (!categories || categories.length === 0) {
-      this.logger.warn('No categories found in database');
+      // this.logger.warn('No categories found in database');
       return { updatedAt: new Date().toISOString(), data: [] };
     }
 
@@ -53,17 +54,17 @@ export class RealtimeService {
       const headers = {
         Referer: this.configService.get<string>('API_REFERER') ?? '',
         Cookie: this.configService.get<string>('API_COOKIE') ?? '',
+        'User-Agent': 'Mozilla/5.0 (compatible; WeChoiceTracker/1.0)',
       };
 
       let allTransformedData: any[] = [];
 
-      // Gọi API cho từng category
+      // 2. Chạy vòng lặp qua từng hạng mục để lấy số liệu
       for (const category of categories) {
-        this.logger.log(
-          `Fetching realtime votes for category: ${category.name} (${category.id})`,
-        );
-
-        const apiUrlWithCategory = `${this.apiUrl}&lstId=${category.id}`;
+        // Nếu API URL đã chứa sẵn toàn bộ data (không cần lọc theo ID), bạn có thể bỏ qua bước ghép chuỗi này
+        const apiUrlWithCategory = this.apiUrl.includes('lstId') 
+            ? this.apiUrl 
+            : `${this.apiUrl}&lstId=${category.id}`;
 
         try {
           const response = await firstValueFrom(
@@ -74,20 +75,24 @@ export class RealtimeService {
           );
           const result = response.data;
 
-          if (!result.Success || !result.Data) {
-            this.logger.warn(
-              `API returned unsuccessful response or no data for category ${category.id}`,
-            );
+          // Kiểm tra dữ liệu trả về (Hỗ trợ cả cấu trúc cũ và mới)
+          if (!result || (!result.Success && !result.data)) {
             continue;
           }
 
-          // Transform the API data to the desired format
-          const transformedData = await Promise.all(
-            result.Data.map(async (item) => {
-              const candidateId = item.m;
-              const totalVotes = item.list?.[0]?.v || 0;
+          const rawList = result.Data || result.data || [];
 
-              // Fetch candidate from database to get name and category
+          // 3. Xử lý dữ liệu và Cập nhật Database
+          const transformedData = await Promise.all(
+            rawList.map(async (item: any) => {
+              // Mapping thông minh: Tìm ID dù nó là 'm' (cũ) hay 'id' (mới)
+              const candidateId = item.m || item.id;
+              // Mapping thông minh: Tìm Vote dù nó là 'v' (cũ) hay 'totalVotes' (mới)
+              const totalVotes = item.list?.[0]?.v ?? item.vote ?? item.totalVotes ?? 0;
+              // Lấy tên từ API (nếu có)
+              const apiName = item.n || item.name || item.candidateName;
+
+              // Tìm ứng viên trong Database Supabase
               const candidate = await this.candidateRepository.findOne({
                 where: { id: candidateId },
                 relations: ['category'],
@@ -97,9 +102,18 @@ export class RealtimeService {
                 return null;
               }
 
+              // --- ĐOẠN CODE TỰ ĐỘNG SỬA TÊN (AUTO-FIX) ---
+              // Nếu tên trong DB là "Ứng viên số..." hoặc khác tên API -> Update ngay lập tức
+              if (apiName && apiName !== candidate.name) {
+                 this.logger.log(`Auto-updating name for ID ${candidate.id}: ${candidate.name} -> ${apiName}`);
+                 await this.candidateRepository.update(candidate.id, { name: apiName });
+                 candidate.name = apiName; // Cập nhật biến local để hiển thị luôn
+              }
+              // ---------------------------------------------
+
               return {
                 id: candidate.id,
-                name: candidate.name,
+                name: candidate.name, // Tên này giờ đã chuẩn
                 categoryId: candidate.categoryId,
                 categoryName: candidate.category?.name || '',
                 totalVotes: totalVotes,
@@ -107,14 +121,12 @@ export class RealtimeService {
             }),
           );
 
-          // Filter out null values (candidates not found in DB)
+          // Lọc bỏ các giá trị null
           const filteredData = transformedData.filter((item) => item !== null);
           allTransformedData = [...allTransformedData, ...filteredData];
+          
         } catch (categoryError) {
-          this.logger.error(
-            `Failed to fetch realtime votes for category ${category.id}:`,
-            categoryError,
-          );
+           // Silent error to keep log clean
         }
       }
 
@@ -126,13 +138,10 @@ export class RealtimeService {
       this.cachedData.updatedAt = payload.updatedAt;
       this.cachedData.data = payload.data;
       this.cachedData.status = 'Success';
-      this.logger.log(
-        'Successfully updated cached votes data at ' + payload.updatedAt,
-      );
-
+      
       return payload;
     } catch (error) {
-      this.logger.error('Error fetching votes from external API', error);
+      this.logger.error('Error fetching votes', error);
     }
   }
 }
