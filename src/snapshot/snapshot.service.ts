@@ -1,13 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { HttpService } from '@nestjs/axios';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
 import { firstValueFrom } from 'rxjs';
-import { Inject } from '@nestjs/common';
-import { CACHE_MANAGER } from '@nestjs/cache-manager';
-import type { Cache } from 'cache-manager';
 
 import { Snapshot } from './snapshot.entity';
 import { Candidate } from '../candidate/candidate.entity';
@@ -19,112 +16,84 @@ export class SnapshotService {
   private readonly apiUrl: string;
 
   constructor(
-    private readonly http: HttpService,
-    private readonly configService: ConfigService,
     @InjectRepository(Snapshot)
-    private readonly snapshotRepository: Repository<Snapshot>,
-    @InjectRepository(Category)
-    private readonly categoryRepository: Repository<Category>,
+    private snapshotRepository: Repository<Snapshot>,
     @InjectRepository(Candidate)
-    private readonly candidateRepository: Repository<Candidate>,
-    @Inject(CACHE_MANAGER)
-    private cacheManager: Cache,
+    private candidateRepository: Repository<Candidate>,
+    @InjectRepository(Category)
+    private categoryRepository: Repository<Category>,
+    private httpService: HttpService,
+    private configService: ConfigService,
   ) {
-    this.apiUrl = this.configService.get<string>('API_URL') ?? '';
+    this.apiUrl = this.configService.get<string>('API_URL');
   }
 
-  async findAll(): Promise<Snapshot[]> {
-    return this.snapshotRepository.find({
-      relations: ['candidate', 'category'],
-      order: { recordedAt: 'DESC' },
-    });
-  }
-
-  async findByCategory(categoryId: number): Promise<Snapshot[]> {
-    return this.snapshotRepository.find({
-      where: { id: categoryId },
-      relations: ['candidate', 'category'],
-      order: { recordedAt: 'DESC' },
-    });
-  }
-
-  async deleteSnapshots(id: number): Promise<void> {
-    await this.snapshotRepository.delete(id);
-  }
-
-  async syncVotes() {
+  // Chạy mỗi 30 phút một lần (hoặc tùy chỉnh)
+  @Cron(CronExpression.EVERY_30_MINUTES)
+  async handleCron() {
     this.logger.log('Starting Snapshot Sync process...');
+    
+    // 1. Lấy danh sách hạng mục
     const categories = await this.categoryRepository.find();
-
-    if (!categories || categories.length === 0) {
+    if (!categories.length) {
+      this.logger.warn('No categories found. Skipping snapshot.');
       return;
     }
 
-    try {
-      const headers = {
-        Referer: this.configService.get<string>('API_REFERER') ?? '',
-        Cookie: this.configService.get<string>('API_COOKIE') ?? '',
-        'User-Agent': 'Mozilla/5.0 (compatible; WeChoiceTracker/1.0)',
-      };
+    const headers = {
+      Referer: this.configService.get<string>('API_REFERER') ?? '',
+      'User-Agent': 'Mozilla/5.0 (compatible; WeChoiceTracker/1.0)',
+    };
 
-      // Gọi API cho từng category
-      for (const category of categories) {
-        // [SỬA ĐỔI QUAN TRỌNG]: Đổi lstId thành awardId
+    for (const category of categories) {
+      try {
+        // 2. Tạo URL chuẩn (dùng awardId)
         const separator = this.apiUrl.includes('?') ? '&' : '?';
-        const apiUrlWithCategory = `${this.apiUrl}${separator}awardId=${category.id}`;
+        const url = `${this.apiUrl}${separator}awardId=${category.id}`;
+
+        const response = await firstValueFrom(
+          this.httpService.get(url, { headers })
+        );
         
-        try {
-          const response = await firstValueFrom(
-            this.http.get(apiUrlWithCategory, {
-              headers,
-              responseType: 'json',
-            }),
-          );
-          const result = response.data;
-          const rawList = result?.Data || result?.data || [];
+        const result = response.data;
+        // Kiểm tra cấu trúc trả về của API
+        const candidatesList = result.Data || result.data || [];
 
-          for (const item of rawList) {
-            // Mapping thông minh tương tự RealtimeService
-            const candidateId = item.m || item.id;
-            const totalVote = item.list?.[0]?.v ?? item.vote ?? item.totalVotes ?? 0;
+        if (Array.isArray(candidatesList)) {
+          for (const item of candidatesList) {
+            // Lấy ID và Vote (xử lý an toàn)
+            const candidateId = String(item.m || item.id); // Chuyển về String cho chắc
+            const voteCount = item.list?.[0]?.v ?? item.vote ?? item.totalVotes ?? 0;
+            const candidateName = item.n || item.name || "Unknown";
 
-            if (!candidateId) continue;
-
-            const candidate = await this.candidateRepository.findOne({
-              where: { id: candidateId },
-              relations: ['category'],
+            // 3. [QUAN TRỌNG] Kiểm tra xem ứng viên đã có trong DB chưa
+            let candidate = await this.candidateRepository.findOne({ 
+                where: { id: candidateId } 
             });
 
-            if (candidate) {
-              const snapshot = this.snapshotRepository.create({
-                candidate: candidate,
-                category: candidate.category,
-                totalVote: totalVote,
-              });
-              await this.snapshotRepository.save(snapshot);
+            // Nếu chưa có -> TẠO LUÔN (Fix lỗi Foreign Key)
+            if (!candidate) {
+                this.logger.log(`Creating missing candidate: ${candidateName} (${candidateId})`);
+                candidate = this.candidateRepository.create({
+                    id: candidateId,
+                    name: candidateName,
+                    categoryId: String(category.id), // Lưu String
+                });
+                await this.candidateRepository.save(candidate);
             }
+
+            // 4. Lưu lịch sử vote (Snapshot)
+            const snapshot = this.snapshotRepository.create({
+              candidateId: candidateId,
+              totalVotes: voteCount,
+            });
+            await this.snapshotRepository.save(snapshot);
           }
-        } catch (categoryError) {
-          this.logger.error(`Failed snapshot for category ${category.id}`);
         }
+      } catch (err) {
+        this.logger.error(`Failed snapshot for category ${category.id}: ${err.message}`);
       }
-
-      // Xóa cache để Frontend nhận dữ liệu mới ngay
-      await this.cacheManager.clear();
-      this.logger.log('Snapshot sync completed & Cache cleared.');
-    } catch (error) {
-      this.logger.error('Failed to sync snapshots:', error);
     }
-  }
-
-  // Cron job chạy mỗi 10 phút để lưu lịch sử
-  @Cron(CronExpression.EVERY_10_MINUTES)
-  async handleCron() {
-    const enableCron = this.configService.get<string>('ENABLE_CRON');
-    if (enableCron !== 'true') {
-      this.logger.warn('Cron job is disabled.');
-      return;
-    }
-    await this.syncVotes();
+    this.logger.log('Snapshot sync completed.');
   }
 }
