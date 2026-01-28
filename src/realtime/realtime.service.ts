@@ -60,11 +60,12 @@ export class RealtimeService {
       let allTransformedData: any[] = [];
 
       // 2. Chạy vòng lặp qua từng hạng mục để lấy số liệu
+      // Gọi API cho từng category
       for (const category of categories) {
-        // Nếu API URL đã chứa sẵn toàn bộ data (không cần lọc theo ID), bạn có thể bỏ qua bước ghép chuỗi này
-        const apiUrlWithCategory = this.apiUrl.includes('lstId') 
-            ? this.apiUrl 
-            : `${this.apiUrl}&lstId=${category.id}`;
+        // [SỬA ĐỔI QUAN TRỌNG]: Đổi lstId thành awardId
+        // Tự động kiểm tra xem API_URL đã có dấu '?' chưa để thêm '&' hoặc '?' cho đúng
+        const separator = this.apiUrl.includes('?') ? '&' : '?';
+        const apiUrlWithCategory = `${this.apiUrl}${separator}awardId=${category.id}`;
 
         try {
           const response = await firstValueFrom(
