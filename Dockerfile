@@ -1,48 +1,54 @@
-# --- GIAI ĐOẠN 1: BUILD ---
-# Đổi từ alpine sang slim (Debian)
-FROM node:20-slim AS builder
+# Build stage
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Copy file cài đặt
+# Copy package files
 COPY package*.json ./
 
-# Cài đặt dependencies
+# Install dependencies
 RUN npm install
 
-# Copy toàn bộ code
+# Copy source code
 COPY . .
 
-# Build code (NestJS)
 RUN rm -f tsconfig.build.tsbuildinfo && \
     rm -rf dist && \
-    npx tsc -p tsconfig.build.json
+    npx tsc -p tsconfig.build.json && \
+    ls -la dist
 
-# --- GIAI ĐOẠN 2: CHẠY (PRODUCTION) ---
-FROM node:20-slim
+# Build application
+RUN npx tsc -p tsconfig.build.json
+
+RUN echo "=== KIỂM TRA THƯ MỤC GỐC ===" && ls -la
+RUN echo "=== KIỂM TRA THƯ MỤC DIST (NẾU CÓ) ===" && ls -la dist || echo "Khong tim thay thu muc dist"
+# ------------------------------
+
+# Production stage
+FROM node:20-alpine
 
 WORKDIR /app
 
-# Cài đặt dumb-init (Dùng apt-get thay vì apk)
-RUN apt-get update && apt-get install -y dumb-init
+# Install dumb-init for proper signal handling
+RUN apk add --no-cache dumb-init
 
-# GIỮ NGUYÊN LỆNH NÀY: Ép buộc dùng IPv4
-ENV NODE_OPTIONS="--dns-result-order=ipv4first"
-
-# Copy code đã build từ giai đoạn 1
+# Copy built application
 COPY --from=builder /app/dist ./dist
 COPY package*.json ./
 
-# Cài dependencies (chỉ production)
+# Install production dependencies only
 RUN npm install --omit=dev
 
-# Tạo user để chạy cho an toàn
-RUN groupadd -r nodejs && useradd -r -g nodejs nodejs
+# Create non-root user
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001
+
 USER nodejs
 
-# Mở cổng 3000
+# Expose port
 EXPOSE 3000
 
-# Chạy lệnh khởi động
+# Use dumb-init to handle signals properly
 ENTRYPOINT ["dumb-init", "--"]
+
 CMD ["node", "dist/main.js"]
